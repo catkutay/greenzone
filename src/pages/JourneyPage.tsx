@@ -276,8 +276,8 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     loadJourneysFromLocalStorage();
   };
 
-  const deleteJourney = (index: number) => {
-    setJourneyToDelete(index);
+  const deleteJourney = (journeyId: number) => {
+    setJourneyToDelete(journeyId);
     setShowDeleteAlert(true);
   };
 
@@ -348,15 +348,15 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
   const confirmDeleteJourney = async () => {
     if (journeyToDelete !== null) {
       const storedJourneys = JSON.parse(localStorage.getItem('allJourneys') || '[]');
-      storedJourneys.splice(journeyToDelete, 1); // remove the journey at the specified index
-      localStorage.setItem('allJourneys', JSON.stringify(storedJourneys));
-      setJourneys(storedJourneys);
+      const updatedJourneys = storedJourneys.filter((journey: Journey) => journey.id !== journeyToDelete);
+      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+      setJourneys(updatedJourneys);
       setShowDeleteAlert(false);
       setJourneyToDelete(null);
     }
   };
 
-  const uploadJourney = async (journey: Journey, index: number) => {
+  const uploadJourney = async (journey: Journey) => {
     if (!user) {
       console.error('User not logged in. This shouldn\'t happen...')
       return;
@@ -365,7 +365,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     /* indexing instead of using blanket 'true' statement to track which journey is being uploaded
      * so that the button state can be set to 'disabled' and prevent users from uploading it more than once.
      */
-    setIsUploading(index);
+    setIsUploading(journey.id);
 
     try {
       console.log('User object:', user);
@@ -488,9 +488,9 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       console.log('Journey, images and shit uploaded successfully!');
 
       // remove from local storage:
-      const updatedJourneys = journeys.filter((_, i) => i !== index);
+      const updatedJourneys = journeys.filter((j) => j.id !== journey.id);
       setJourneys(updatedJourneys);
-      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys.filter(j => j !== null)));
+      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
 
       await fetchServerJourneys(user.id, setServerJourneys);
       setIsUploading(null);
@@ -520,7 +520,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     isCurrentUser: boolean
   ) => {
     return journeys
-      .map((journey, index) => {
+      .map((journey) => {
         if (journey === null) {
           return null; // Skip null journeys since they're corrupted
         }
@@ -545,7 +545,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
           : journey.feedback && journey.feedback.length > 0;
 
         return (
-          <IonCol key={isLocal ? index : journey.id} size="12" size-md="6">
+          <IonCol key={journey.id} size="12" size-md="6">
             <IonCard>
               <IonCardHeader>
                 <IonCardTitle>
@@ -570,17 +570,13 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                     {isCurrentUser && (
                       <>
                         <IonCol size="6">
-                          {/* FIXME: Shows delete when searching for other user's journeys. Should admin (staff) users
-                            *   be able to delete journeys from other users without their knowledge? I think they should
-                            *   just be able to view them. Not delete.
-                            */}
                           <IonButton
                             expand="block"
                             fill="solid"
                             color="danger"
                             onClick={() =>
                               isLocal
-                                ? deleteJourney(index)
+                                ? deleteJourney(journey.id)
                                 : journey.id
                                 ? deleteServerJourney(journey.id)
                                 : null
@@ -589,17 +585,16 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                             Delete
                           </IonButton>
                         </IonCol>
-                        {/* FIXME: Upload button shows when viewing other user's journeys. */}
                         {isLocal && !journey.isCorrupted && (
                           <IonCol size="6">
                             <IonButton
                               expand="block"
                               fill="solid"
                               color="primary"
-                              onClick={() => uploadJourney(journey, index)}
-                              disabled={isUploading === index}
+                              onClick={() => uploadJourney(journey)}
+                              disabled={isUploading === journey.id}
                             >
-                              {isUploading === index ? 'Uploading...' : 'Upload'}
+                              {isUploading === journey.id ? 'Uploading...' : 'Upload'}
                             </IonButton>
                           </IonCol>
                         )}
@@ -714,16 +709,30 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                 </>
               )}
 
-              <IonText>
-              {/* TODO: Make this show "{user}'s journeys" if an admin (staff) has selected someone else's journeys */}
-                <h2>Previous Journeys</h2>
-              </IonText>
-              <IonGrid>
-                <IonRow>
-                  {renderJourneyCards(journeys, true, true)}
-                  {isLoading ? (<IonSpinner />) : renderJourneyCards(serverJourneys, false, true)}
-                </IonRow>
-              </IonGrid>
+              {selectedUser ? (
+                <>
+                  <IonText>
+                    <h2>{selectedUser.first_name}'s Journeys</h2>
+                  </IonText>
+                  <IonGrid>
+                    <IonRow>
+                      {isLoading ? (<IonSpinner />) : renderJourneyCards(selectedUserJourneys, false, false)}
+                    </IonRow>
+                  </IonGrid>
+                </>
+              ) : (
+                <>
+                  <IonText>
+                    <h2>Your Journeys</h2>
+                  </IonText>
+                  <IonGrid>
+                    <IonRow>
+                      {renderJourneyCards(journeys, true, true)}
+                      {isLoading ? (<IonSpinner />) : renderJourneyCards(serverJourneys, false, true)}
+                    </IonRow>
+                  </IonGrid>
+                </>
+              )}
             </>
           )}
         </div>
