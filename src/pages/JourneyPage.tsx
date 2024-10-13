@@ -16,6 +16,7 @@ import {
   IonRow,
   IonAlert,
   IonSpinner,
+  isPlatform,
 } from '@ionic/react';
 import './JourneyPage.css';
 import JourneyRecording from '../components/JourneyRecordingContainer';
@@ -24,6 +25,7 @@ import KestrelUploadModal from '../components/KestrelUploadModal';
 import { supabase } from '../supabaseClient'
 import { Buffer } from 'buffer'; // https://www.npmjs.com/package/buffer
 import FeedbackViewModal from '../components/FeedbackViewModal';
+import UserSearchComponent from '../components/UserSearchComponent';
 
 interface JourneyPageProps {
   user: any;
@@ -68,6 +70,16 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
   const [selectedFeedback, setSelectedFeedback] = useState<any[]>([]);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false); // modal for feedback (shows text and images)
   const [serverJourneyToDelete, setServerJourneyToDelete] = useState<number | null>(null);
+  /* state variable for the user profiles and fetching them using useEffect
+   * This is for searching users and seeing their journeys as a "Staff" member. Really, this should be limited to
+   * a new role such as "Admin" but since there's no way to enter yourself as one without going into Supabase,
+   * "Staff" is probably good enough for now.
+   */
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [currentUserJourneys, setCurrentUserJourneys] = useState<Journey[]>([]);
+  const [selectedUserJourneys, setSelectedUserJourneys] = useState<Journey[]>([]);
+
 
   function decode(base64String: string): Uint8Array {
     /* Basically takes the base64 and converts it back to an image for supabase, since for *whatever* reason we can't
@@ -84,8 +96,26 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
   useEffect(() => {
     console.log('Current user:', user);
     loadJourneysFromLocalStorage();
-    fetchServerJourneys();
-    console.log('Loaded journeys:', journeys);
+
+    const fetchUserProfile = async () => {
+      if (!user) return;
+
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        setUserProfile(profileData);
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+      }
+    };
+
+    fetchUserProfile();
   }, [user]); // This effect runs when the user prop changes
 
   // Rest of the function names should explain more or less what they do.
@@ -101,19 +131,24 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       } catch (error) {
         console.error('Error parsing stored journeys:', error);
       }
+    } else {
+      setJourneys([]);
     }
   };
 
-  const fetchServerJourneys = async () => {
-    if (!user) return;
+  const fetchServerJourneys = async (
+    userId: string,
+    setJourneysState: React.Dispatch<React.SetStateAction<Journey[]>>
+  ) => {
+    if (!userId) return;
 
     setIsLoading(true);
     try {
-      console.log('Fetching journeys for user ID:', user.id);
+      console.log('Fetching journeys for user ID:', userId);
       const { data: journeyData, error: journeyError } = await supabase
         .from('journeys')
         .select('*')
-        .eq('journey_user', user.id);
+        .eq('journey_user', userId);
 
       if (journeyError) throw journeyError;
       console.log('Fetched journeys:', journeyData);
@@ -142,47 +177,67 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
         })
       );
 
-      const formattedJourneys = journeysWithLocationsAndFeedback.map((journey: ServerJourney & { feedback: any[] }) => {
-        try {
-          return {
-            id: journey.id,
-            startTime: new Date(journey.journey_start).getTime(),
-            endTime: new Date(journey.journey_finish).getTime(),
-            duration: new Date(journey.journey_finish).getTime() - new Date(journey.journey_start).getTime(),
-            positions: journey.locations
-              .filter(loc => loc && loc.location && true)
-              .map(loc => {
-                const [lon, lat] = loc.location.slice(6, -1).split(' ');
-                return {
-                  latitude: parseFloat(lat),
-                  longitude: parseFloat(lon),
-                  timestamp: new Date(loc.location_time).getTime()
-                };
-              })
-              .filter(pos => pos !== null),
-            feedback: journey.feedback
-          };
-        } catch (error) {
-          console.error('Error parsing journey:', journey, error);
-          return {
-            id: journey.id,
-            startTime: 0,
-            endTime: 0,
-            duration: 0,
-            positions: [],
-            isCorrupted: true,
-            feedback: []
-          };
+      const formattedJourneys = journeysWithLocationsAndFeedback.map(
+        (journey: ServerJourney & { feedback: any[] }) => {
+          try {
+            return {
+              id: journey.id,
+              startTime: new Date(journey.journey_start).getTime(),
+              endTime: new Date(journey.journey_finish).getTime(),
+              duration:
+                new Date(journey.journey_finish).getTime() -
+                new Date(journey.journey_start).getTime(),
+              positions: journey.locations
+                .filter((loc) => loc && loc.location && true)
+                .map((loc) => {
+                  const [lon, lat] = loc.location
+                    .slice(6, -1)
+                    .split(' ');
+                  return {
+                    latitude: parseFloat(lat),
+                    longitude: parseFloat(lon),
+                    timestamp: new Date(loc.location_time).getTime(),
+                  };
+                })
+                .filter((pos) => pos !== null),
+              feedback: journey.feedback,
+            };
+          } catch (error) {
+            console.error('Error parsing journey:', journey, error);
+            return {
+              id: journey.id,
+              startTime: 0,
+              endTime: 0,
+              duration: 0,
+              positions: [],
+              isCorrupted: true,
+              feedback: []
+            };
+          }
         }
-      });
+      );
 
-      setServerJourneys(formattedJourneys);
+      setJourneysState(formattedJourneys);
     } catch (error) {
       console.error('Error fetching journeys:', error);
     } finally {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      fetchServerJourneys(user.id, setServerJourneys);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (selectedUser) {
+      fetchServerJourneys(selectedUser.id, setSelectedUserJourneys);
+    } else {
+      setSelectedUserJourneys([]);
+    }
+  }, [selectedUser]);
 
   const validateJourney = (journey: any): Journey => {
     if (
@@ -225,8 +280,8 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     loadJourneysFromLocalStorage();
   };
 
-  const deleteJourney = (index: number) => {
-    setJourneyToDelete(index);
+  const deleteJourney = (journeyId: number) => {
+    setJourneyToDelete(journeyId);
     setShowDeleteAlert(true);
   };
 
@@ -285,27 +340,33 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
 
         setServerJourneys(prevJourneys => prevJourneys.filter(journey => journey.id !== serverJourneyToDelete));
 
-        await fetchServerJourneys();
+        await fetchServerJourneys(user.id, setServerJourneys);
 
         console.log('Journey and all associated data deleted successfully');
       } catch (error) {
         console.error('Error deleting journey:', error);
+      } finally {
+        setServerJourneyToDelete(null);
+        setShowDeleteAlert(false);
       }
     }
   };
 
   const confirmDeleteJourney = async () => {
     if (journeyToDelete !== null) {
-      const storedJourneys = JSON.parse(localStorage.getItem('allJourneys') || '[]');
-      storedJourneys.splice(journeyToDelete, 1); // remove the journey at the specified index
-      localStorage.setItem('allJourneys', JSON.stringify(storedJourneys));
-      setJourneys(storedJourneys);
+      setJourneys((prevJourneys) => {
+        const updatedJourneys = prevJourneys.filter(
+          (journey) => journey.id !== journeyToDelete
+        );
+        localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+        return updatedJourneys;
+      });
       setShowDeleteAlert(false);
       setJourneyToDelete(null);
     }
   };
 
-  const uploadJourney = async (journey: Journey, index: number) => {
+  const uploadJourney = async (journey: Journey) => {
     if (!user) {
       console.error('User not logged in. This shouldn\'t happen...')
       return;
@@ -314,7 +375,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     /* indexing instead of using blanket 'true' statement to track which journey is being uploaded
      * so that the button state can be set to 'disabled' and prevent users from uploading it more than once.
      */
-    setIsUploading(index);
+    setIsUploading(journey.id);
 
     try {
       console.log('User object:', user);
@@ -437,17 +498,20 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       console.log('Journey, images and shit uploaded successfully!');
 
       // remove from local storage:
-      const updatedJourneys = journeys.filter((_, i) => i !== index);
-      setJourneys(updatedJourneys);
-      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys.filter(j => j !== null)));
+      setJourneys((prevJourneys) => {
+        const updatedJourneys = prevJourneys.filter(
+          (j) => j.id !== journey.id
+        );
+        localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+        return updatedJourneys;
+      });
 
-      await fetchServerJourneys();
+      await fetchServerJourneys(user.id, setServerJourneys);
       setIsUploading(null);
     } catch (error) {
       console.error('Error uploading journey:', error);
       setIsUploading(null);
     }
-
   };
 
   const openFeedbackModal = (journeyId: number, isLocal: boolean) => {
@@ -463,88 +527,120 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     setIsFeedbackModalOpen(true);
   };
 
-  const renderJourneyCards = (journeys: Journey[], isLocal: boolean) => {
-    return journeys.map((journey, index) => {
-      if (journey === null) {
-        return null; // Skip null journeys since they're corrupted
-      }
-      let positions: [number, number][] = [];
-      if (!journey.isCorrupted) {
-        try {
-          positions = journey.positions.map(pos => [pos.latitude, pos.longitude]);
-        } catch (error) {
-          console.error('Error parsing positions:', error);
+  const renderJourneyCards = (
+    journeys: Journey[],
+    isLocal: boolean,
+    isCurrentUser: boolean
+  ) => {
+    console.log( // DEBUGGING
+      'Rendering journey cards:',
+      journeys.length,
+      'journeys, isLocal:',
+      isLocal,
+      'isCurrentUser:',
+      isCurrentUser
+    );
+    return journeys
+      .map((journey) => {
+        if (journey === null) {
+          return null; // Skip null journeys since they're corrupted
         }
-      }
+        let positions: [number, number][] = [];
+        if (!journey.isCorrupted) {
+          try {
+            positions = journey.positions.map((pos) => [
+              pos.latitude,
+              pos.longitude,
+            ]);
+          } catch (error) {
+            console.error('Error parsing positions:', error);
+          }
+        }
 
-      const durationInMinutes = Math.round(journey.duration / 60000); // milliseconds to minutes
-      const feedbackData = JSON.parse(localStorage.getItem('journeyFeedback') || '[]');
-      const hasFeedback = isLocal
-      ? feedbackData.some((fb: any) => fb.journeyId === journey.id)
-      : journey.feedback && journey.feedback.length > 0;
+        const durationInMinutes = Math.round(journey.duration / 60000); // milliseconds to minutes
+        const feedbackData = JSON.parse(
+          localStorage.getItem('journeyFeedback') || '[]'
+        );
+        const hasFeedback = isLocal
+          ? feedbackData.some((fb: any) => fb.journeyId === journey.id)
+          : journey.feedback && journey.feedback.length > 0;
 
-      return (
-        <IonCol key={isLocal ? index : journey.id} size="12" size-md="6">
-          <IonCard>
-            <IonCardHeader>
-              <IonCardTitle>Journey: {new Date(journey.startTime).toLocaleString()} ({durationInMinutes} Minutes)</IonCardTitle>
-            </IonCardHeader>
-            <IonCardContent>
-              {journey.isCorrupted ? (
-                <div>
-                  <IonText color="danger">
-                    <h2>Corrupted Journey</h2>
-                  </IonText>
-                </div>
-              ) : (
-                <>
-                  <JourneyMap positions={positions} />
-                </>
-              )}
-               <IonGrid>
-                <IonRow>
-                  <IonCol size="6">
-                    <IonButton
-                      expand="block"
-                      fill="solid"
-                      color="danger"
-                      onClick={() => isLocal ? deleteJourney(index) : journey.id ? deleteServerJourney(journey.id) : null}
-                    >
-                      Delete
-                    </IonButton>
-                  </IonCol>
-                  <IonCol size="6">
-                    {isLocal && !journey.isCorrupted && (
-                      <IonButton
-                        expand="block"
-                        fill="solid"
-                        color="primary"
-                        onClick={() => uploadJourney(journey, index)}
-                        disabled={isUploading === index}
-                      >
-                        {isUploading === index ? 'Uploading...' : 'Upload'}
-                      </IonButton>
+        return (
+          <IonCol key={journey.id} size="12" size-md="6">
+            <IonCard>
+              <IonCardHeader>
+                <IonCardTitle>
+                  Journey: {new Date(journey.startTime).toLocaleString()} (
+                  {durationInMinutes} Minutes)
+                </IonCardTitle>
+              </IonCardHeader>
+              <IonCardContent>
+                {journey.isCorrupted ? (
+                  <div>
+                    <IonText color="danger">
+                      <h2>Corrupted Journey</h2>
+                    </IonText>
+                  </div>
+                ) : (
+                  <>
+                    <JourneyMap positions={positions} />
+                  </>
+                )}
+                <IonGrid>
+                  <IonRow>
+                    {isCurrentUser && (
+                      <>
+                        {/* Only show Delete button for the user's journeys */}
+                        <IonCol size="6">
+                          <IonButton
+                            expand="block"
+                            fill="solid"
+                            color="danger"
+                            onClick={() =>
+                              isLocal
+                                ? deleteJourney(journey.id)
+                                : deleteServerJourney(journey.id)
+                            }
+                          >
+                            Delete
+                          </IonButton>
+                        </IonCol>
+                        {/* Only show Upload button for local journeys */}
+                        {isLocal && !journey.isCorrupted && (
+                          <IonCol size="6">
+                            <IonButton
+                              expand="block"
+                              fill="solid"
+                              color="primary"
+                              onClick={() => uploadJourney(journey)}
+                              disabled={isUploading === journey.id}
+                            >
+                              {isUploading === journey.id ? 'Uploading...' : 'Upload'}
+                            </IonButton>
+                          </IonCol>
+                        )}
+                      </>
                     )}
-                  </IonCol>
-                  {hasFeedback && (
-                    <IonCol size="6">
-                      <IonButton
-                        expand="block"
-                        fill="solid"
-                        color="secondary"
-                        onClick={() => openFeedbackModal(journey.id, isLocal)}
-                      >
-                        View Feedback
-                      </IonButton>
-                    </IonCol>
-                  )}
-                </IonRow>
-             </IonGrid>
-            </IonCardContent>
-          </IonCard>
-        </IonCol>
-      );
-    }).filter(Boolean); // null entries should be removed here
+                    {hasFeedback && (
+                      <IonCol size="6">
+                        <IonButton
+                          expand="block"
+                          fill="solid"
+                          color="secondary"
+                          onClick={() => openFeedbackModal(journey.id, isLocal)}
+                        >
+                          View Feedback
+                        </IonButton>
+                      </IonCol>
+                    )}
+                  </IonRow>
+                </IonGrid>
+              </IonCardContent>
+            </IonCard>
+          </IonCol>
+        );
+      })
+      .filter(Boolean); // null entries should be removed here
   };
 
   if (!user) {
@@ -574,6 +670,13 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     );
   }
 
+  const showRecordJourney = () => {
+    return isPlatform('ios') || isPlatform('android');
+  };
+
+  const showUploadKestrel = () => { // Basically just NOT mobile.
+    return !showRecordJourney();
+  };
 
   return (
     <IonPage>
@@ -593,27 +696,70 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                   <h1 className="bigtext">JOURNEYS</h1>
                 </IonText>
               </div>
-              <IonText>
-                <h2>Record a Journey</h2>
-              </IonText>
-              <IonButton expand="block" size="large" onClick={startJourney}>Start Journey</IonButton>
 
-              <IonText>
-                <h2>Upload Kestrel Data</h2>
-              </IonText>
-              <IonButton expand="block" size="large" onClick={() => setIsUploadModalOpen(true)}>
-                Upload Kestrel Data
-              </IonButton>
+              {showRecordJourney() && (
+                <>
+                  <IonText>
+                    <h2>Record a Journey</h2>
+                  </IonText>
+                  <IonButton expand="block" size="large" onClick={startJourney}>Start Journey</IonButton>
+                </>
+              )}
 
-              <IonText>
-                <h2>Previous Journeys</h2>
-              </IonText>
-              <IonGrid>
-                <IonRow>
-                  {renderJourneyCards(journeys, true)}
-                  {isLoading ? (<IonSpinner />) : renderJourneyCards(serverJourneys, false)}
-                </IonRow>
-              </IonGrid>
+              {showUploadKestrel() && (
+                <>
+                  <IonText>
+                    <h2>Upload Kestrel Data</h2>
+                  </IonText>
+                  <IonButton expand="block" size="large" onClick={() => setIsUploadModalOpen(true)}>
+                    Upload Kestrel Data
+                  </IonButton>
+                </>
+              )}
+
+              {userProfile && userProfile.user_type === 'Staff' && (
+                <>
+                  <IonText>
+                    <h2>Search for Users</h2>
+                  </IonText>
+                  <UserSearchComponent
+                    onUserSelect={(user) => {
+                      setSelectedUser(user);
+                    }}
+                  />
+                </>
+              )}
+
+              {selectedUser ? (
+                <>
+                  <IonText>
+                    <h2>{selectedUser.first_name}'s Journeys</h2>
+                  </IonText>
+                  <IonButton
+                    color="medium"
+                    onClick={() => setSelectedUser(null)}
+                  >
+                    Back to Your Journeys
+                  </IonButton>
+                  <IonGrid>
+                    <IonRow>
+                      {isLoading ? (<IonSpinner />) : renderJourneyCards(selectedUserJourneys, false, false)}
+                    </IonRow>
+                  </IonGrid>
+                </>
+              ) : (
+                <>
+                  <IonText>
+                    <h2>Your Journeys</h2>
+                  </IonText>
+                  <IonGrid>
+                    <IonRow>
+                      {renderJourneyCards(journeys, true, true)}
+                      {isLoading ? (<IonSpinner />) : renderJourneyCards(serverJourneys, false, true)}
+                    </IonRow>
+                  </IonGrid>
+                </>
+              )}
             </>
           )}
         </div>
