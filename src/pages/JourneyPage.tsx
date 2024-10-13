@@ -131,6 +131,8 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       } catch (error) {
         console.error('Error parsing stored journeys:', error);
       }
+    } else {
+      setJourneys([]);
     }
   };
 
@@ -215,7 +217,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
         }
       );
 
-      setJourneys(formattedJourneys);
+      setJourneysState(formattedJourneys);
     } catch (error) {
       console.error('Error fetching journeys:', error);
     } finally {
@@ -225,13 +227,15 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
 
   useEffect(() => {
     if (user) {
-      fetchServerJourneys(user.id, setCurrentUserJourneys);
+      fetchServerJourneys(user.id, setServerJourneys);
     }
   }, [user]);
 
   useEffect(() => {
     if (selectedUser) {
       fetchServerJourneys(selectedUser.id, setSelectedUserJourneys);
+    } else {
+      setSelectedUserJourneys([]);
     }
   }, [selectedUser]);
 
@@ -341,16 +345,22 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
         console.log('Journey and all associated data deleted successfully');
       } catch (error) {
         console.error('Error deleting journey:', error);
+      } finally {
+        setServerJourneyToDelete(null);
+        setShowDeleteAlert(false);
       }
     }
   };
 
   const confirmDeleteJourney = async () => {
     if (journeyToDelete !== null) {
-      const storedJourneys = JSON.parse(localStorage.getItem('allJourneys') || '[]');
-      const updatedJourneys = storedJourneys.filter((journey: Journey) => journey.id !== journeyToDelete);
-      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
-      setJourneys(updatedJourneys);
+      setJourneys((prevJourneys) => {
+        const updatedJourneys = prevJourneys.filter(
+          (journey) => journey.id !== journeyToDelete
+        );
+        localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+        return updatedJourneys;
+      });
       setShowDeleteAlert(false);
       setJourneyToDelete(null);
     }
@@ -488,9 +498,13 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       console.log('Journey, images and shit uploaded successfully!');
 
       // remove from local storage:
-      const updatedJourneys = journeys.filter((j) => j.id !== journey.id);
-      setJourneys(updatedJourneys);
-      localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+      setJourneys((prevJourneys) => {
+        const updatedJourneys = prevJourneys.filter(
+          (j) => j.id !== journey.id
+        );
+        localStorage.setItem('allJourneys', JSON.stringify(updatedJourneys));
+        return updatedJourneys;
+      });
 
       await fetchServerJourneys(user.id, setServerJourneys);
       setIsUploading(null);
@@ -498,7 +512,6 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
       console.error('Error uploading journey:', error);
       setIsUploading(null);
     }
-
   };
 
   const openFeedbackModal = (journeyId: number, isLocal: boolean) => {
@@ -519,6 +532,14 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     isLocal: boolean,
     isCurrentUser: boolean
   ) => {
+    console.log( // DEBUGGING
+      'Rendering journey cards:',
+      journeys.length,
+      'journeys, isLocal:',
+      isLocal,
+      'isCurrentUser:',
+      isCurrentUser
+    );
     return journeys
       .map((journey) => {
         if (journey === null) {
@@ -569,6 +590,7 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                   <IonRow>
                     {isCurrentUser && (
                       <>
+                        {/* Only show Delete button for the user's journeys */}
                         <IonCol size="6">
                           <IonButton
                             expand="block"
@@ -577,14 +599,13 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                             onClick={() =>
                               isLocal
                                 ? deleteJourney(journey.id)
-                                : journey.id
-                                ? deleteServerJourney(journey.id)
-                                : null
+                                : deleteServerJourney(journey.id)
                             }
                           >
                             Delete
                           </IonButton>
                         </IonCol>
+                        {/* Only show Upload button for local journeys */}
                         {isLocal && !journey.isCorrupted && (
                           <IonCol size="6">
                             <IonButton
@@ -714,6 +735,12 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
                   <IonText>
                     <h2>{selectedUser.first_name}'s Journeys</h2>
                   </IonText>
+                  <IonButton
+                    color="medium"
+                    onClick={() => setSelectedUser(null)}
+                  >
+                    Back to Your Journeys
+                  </IonButton>
                   <IonGrid>
                     <IonRow>
                       {isLoading ? (<IonSpinner />) : renderJourneyCards(selectedUserJourneys, false, false)}
