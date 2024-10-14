@@ -514,17 +514,35 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     }
   };
 
-  const openFeedbackModal = (journeyId: number, isLocal: boolean) => {
-    let journeyFeedback;
-    if (isLocal) {
-      const feedbackData = JSON.parse(localStorage.getItem('journeyFeedback') || '[]');
-      journeyFeedback = feedbackData.filter((fb: any) => fb.journeyId === journeyId);
-    } else {
-      const serverJourney = serverJourneys.find(j => j.id === journeyId);
-      journeyFeedback = serverJourney ? serverJourney.feedback : [];
+  const openFeedbackModal = async (journeyId: number, isLocal: boolean) => {
+    try {
+      let journeyFeedback;
+      if (isLocal) {
+        const feedbackData = JSON.parse(localStorage.getItem('journeyFeedback') || '[]');
+        journeyFeedback = feedbackData.filter((fb: any) => fb.journeyId === journeyId);
+      } else {
+        try {
+          const { data: journeyData, error: journeyError } = await supabase
+            .from("feedback")
+            .select("*")
+            .eq("journey_id", journeyId);
+          if (journeyError) {
+            console.error('Error grabbing feedback:', journeyError);
+            journeyFeedback = [];
+          } else {
+           journeyFeedback = journeyData;
+          }
+        } catch (error) {
+          console.error('Error querying Supabase:', error);
+        }
+      }
+      console.log("openFeedbackModal: journeyFeedback", journeyFeedback);
+      setSelectedFeedback(journeyFeedback);
+      setIsFeedbackModalOpen(true);
     }
-    setSelectedFeedback(journeyFeedback);
-    setIsFeedbackModalOpen(true);
+    catch (error) {
+      console.error('Error opening feedback modal:', error);
+    }
   };
 
   const renderJourneyCards = (
@@ -532,14 +550,6 @@ const JourneyPage: React.FC<JourneyPageProps> = ({ user }) => {
     isLocal: boolean,
     isCurrentUser: boolean
   ) => {
-    console.log( // DEBUGGING
-      'Rendering journey cards:',
-      journeys.length,
-      'journeys, isLocal:',
-      isLocal,
-      'isCurrentUser:',
-      isCurrentUser
-    );
     return journeys
       .map((journey) => {
         if (journey === null) {
