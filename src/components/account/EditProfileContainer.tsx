@@ -135,7 +135,7 @@ const EditProfileContainer: React.FC<EditProfileContainerProps> = ({ user, onPro
             label="Type of User"
             placeholder="Select"
             value={typeOfUser}
-            onIonInput={(e) => setTypeOfUser(e.detail.value!)}
+            onIonChange={(e) => setTypeOfUser(e.detail.value!)}
           >
             <IonSelectOption value="Patient">Patient</IonSelectOption>
             <IonSelectOption value="Staff">Staff</IonSelectOption>
