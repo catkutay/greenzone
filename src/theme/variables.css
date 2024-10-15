@@ -35,7 +35,18 @@ http://ionicframework.com/docs/theming/ */
   text-decoration: none;
 }
 
-.bigtext {
-  font-size: 64px;
-  color: var(--ion-color-primary);
+@media (max-width: 700px) {
+  .bigtext {
+   font-size: 48px;
+    font-weight: bold;
+   color: var(--ion-color-primary);
+  }
+}
+
+@media (min-width: 700px) {
+  .bigtext {
+    font-size: 64px;
+    font-weight: bold;
+    color: var(--ion-color-primary);
+  }
 }
